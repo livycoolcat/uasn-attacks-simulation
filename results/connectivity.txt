@@ -1,0 +1,9 @@
+4 settings x 20 seeds, baseline only (no attackers)
+
+box (m)             range   connected  mean PDR  min sink nbrs
+300x300x500           100     20/20        1.00              1
+300x300x500           120     20/20        1.00              2
+250x250x500           100     20/20        1.00              2
+250x250x500           120     20/20        1.00              6
+
+First setting connected on every seed: box 300x300x500, range 100 m
