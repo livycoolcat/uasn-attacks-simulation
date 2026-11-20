@@ -43,6 +43,7 @@
 #include "ns3/aqua-sim-routing-dbr.h"
 
 #include <algorithm>
+#include <fstream>
 #include <cmath>
 #include <map>
 #include <queue>
@@ -67,7 +68,9 @@ const char* CSV_HEADER =
   "run,relays,range,width,length,depth,packets,attack,placement,fractionAsked,fraction,bad,"
   "dropProb,"
   "sent,delivered,pdr,avgDelay,tx,txCost,duplicates,attackerDrops,spoofTx,"
-  "srcNeighbours,sinkNeighbours,reachable,badInRangeOfSink,legacyNewPacketTest";
+  "srcNeighbours,sinkNeighbours,reachable,badInRangeOfSink,legacyNewPacketTest,"
+  "cancelledBySpoof,spoofHeardFirst,cancelledHonest,requeuedAfterSuppress,requeueBlocked,"
+  "suppressedIsFinal";
 
 void
 SinkRx(Ptr<const Packet> p)
@@ -167,8 +170,12 @@ main(int argc, char* argv[])
   int badNodes = -1;                 // exact number of bad nodes (overrides fraction)
   uint32_t bands = 3;
   double dropProb = 0.5;             // grayhole drop probability
-  double spoofZ = -1;                // claimed height for spoofing; default depth + range
+  double spoofZ = -1;                // claimed height; <0 = attacker height + range (Zuba et al.)
+  std::string badList = "";          // explicit bad relay indices, e.g. "2,3" (tests)
+  std::string positionsFile = "";    // optional CSV of relay positions x,y,z (hand-built tests)
   bool legacyNewPacketTest = false;  // reproduce the original DBR bug (Fix 1)
+  bool suppressedIsFinal = false;    // DBR variant: suppression is final (Zuba et al.)
+  bool trace = false;
   bool csvHeader = false;
   bool verbose = true;
 
@@ -188,10 +195,19 @@ main(int argc, char* argv[])
   cmd.AddValue("badNodes", "Exact number of bad nodes (overrides --fraction)", badNodes);
   cmd.AddValue("bands", "Number of depth bands", bands);
   cmd.AddValue("dropProb", "Grayhole drop probability (0-1)", dropProb);
-  cmd.AddValue("spoofZ", "Height a spoofer/sinkhole claims (default depth+range)", spoofZ);
+  cmd.AddValue("spoofZ", "Absolute height a spoofer/sinkhole claims; <0 = own height + range",
+               spoofZ);
+  cmd.AddValue("badList", "Comma-separated relay indices to make bad (overrides placement)",
+               badList);
+  cmd.AddValue("positions", "CSV file of relay positions x,y,z (overrides --relays)",
+               positionsFile);
   cmd.AddValue("legacyNewPacketTest",
                "Use Aqua-Sim's original buggy new-packet test in DBR (before/after demo)",
                legacyNewPacketTest);
+  cmd.AddValue("suppressedIsFinal",
+               "A suppressed node ignores later copies of that packet (DBR as in Zuba et al.)",
+               suppressedIsFinal);
+  cmd.AddValue("trace", "Print one TRACE line per DBR decision (small tests only)", trace);
   cmd.AddValue("csvHeader", "Print the CSV column names and exit", csvHeader);
   cmd.AddValue("verbose", "Print the human-readable summary", verbose);
   cmd.Parse(argc, argv);
@@ -208,9 +224,30 @@ main(int argc, char* argv[])
   // AquaSim addresses are 1-byte style and 255 is broadcast: keep below it.
   NS_ABORT_MSG_IF(relays + 2 >= 255, "At most 252 relays are supported");
   NS_ABORT_MSG_IF(bands < 1, "--bands must be at least 1");
-  if (spoofZ < 0)
+  // Holding time in DBR must use the same range as the PHY.
+  AquaSimDBR::s_trace = trace;
+  Config::SetDefault("ns3::AquaSimDBR::MaxRange", DoubleValue(range));
+  Config::SetDefault("ns3::AquaSimDBR::SuppressedIsFinal", BooleanValue(suppressedIsFinal));
+
+  // Hand-built layouts for validation: one "x,y,z" relay per line.
+  std::vector<Vector> filePos;
+  if (!positionsFile.empty())
     {
-      spoofZ = depth + range;
+      std::ifstream in(positionsFile);
+      NS_ABORT_MSG_IF(!in, "Cannot open --positions=" << positionsFile);
+      std::string line;
+      while (std::getline(in, line))
+        {
+          if (line.empty() || line[0] == '#')
+            continue;
+          std::replace(line.begin(), line.end(), ',', ' ');
+          std::istringstream ls(line);
+          double x, y, z;
+          if (ls >> x >> y >> z)
+            filePos.push_back(Vector(x, y, z));
+        }
+      relays = filePos.size();
+      NS_ABORT_MSG_IF(relays + 2 >= 255, "At most 252 relays are supported");
     }
 
   std::map<std::string, AquaSimDBR::AttackMode> modes = {
@@ -244,7 +281,7 @@ main(int argc, char* argv[])
       double x = rand->GetValue(0, width);
       double y = rand->GetValue(0, length);
       double z = rand->GetValue(0, depth);
-      pos.push_back(Vector(x, y, z));
+      pos.push_back(filePos.empty() ? Vector(x, y, z) : filePos[i]);
     }
   pos.push_back(Vector(width / 2, length / 2, 0));     // source on the seafloor
   pos.push_back(Vector(width / 2, length / 2, depth)); // sink at the surface
@@ -317,6 +354,22 @@ main(int argc, char* argv[])
                 << " relays; using " << nBad << " bad nodes instead of " << wanted << "\n";
     }
   std::set<uint32_t> bad(candidates.begin(), candidates.begin() + nBad);
+  if (!badList.empty() && mode != AquaSimDBR::ATTACK_NONE)
+    {
+      bad.clear();
+      std::string b = badList;
+      std::replace(b.begin(), b.end(), ',', ' ');
+      std::istringstream bs(b);
+      uint32_t idx;
+      while (bs >> idx)
+        {
+          NS_ABORT_MSG_IF(idx >= relays, "--badList index " << idx << " is not a relay");
+          bad.insert(idx);
+        }
+      nBad = bad.size();
+      wanted = nBad;
+      placement = "list";
+    }
   uint32_t badNearSink = 0;
   for (uint32_t i : bad)
     {
@@ -405,7 +458,12 @@ main(int argc, char* argv[])
       if (mode == AquaSimDBR::ATTACK_GRAYHOLE)
         std::cout << " dropProb=" << dropProb;
       if (mode == AquaSimDBR::ATTACK_DEPTHSPOOF || mode == AquaSimDBR::ATTACK_SINKHOLE)
-        std::cout << " spoofZ=" << spoofZ;
+        {
+          if (spoofZ < 0)
+            std::cout << " spoofZ=own+" << range;
+          else
+            std::cout << " spoofZ=" << spoofZ;
+        }
       std::cout << "\n";
       if (legacyNewPacketTest)
         {
@@ -421,6 +479,11 @@ main(int argc, char* argv[])
                 << " avgDelay=" << avgDelay << "s tx=" << g_txCount << " txCost=" << txCost
                 << " duplicates=" << g_duplicates << " attackerDrops=" << attackerDrops
                 << " spoofTx=" << spoofTx << "\n";
+      std::cout << "suppression: cancelledBySpoof=" << AquaSimDBR::s_cancelledBySpoof
+                << " spoofHeardFirst=" << AquaSimDBR::s_spoofHeardFirst
+                << " cancelledHonest=" << AquaSimDBR::s_cancelledHonest
+                << " requeuedAfterSuppress=" << AquaSimDBR::s_requeuedAfterSuppress
+                << " requeueBlocked=" << AquaSimDBR::s_requeueBlocked << "\n";
     }
 
   // one machine-readable line for the run script (columns: see CSV_HEADER)
@@ -432,7 +495,10 @@ main(int argc, char* argv[])
             << delivered << "," << pdr << "," << avgDelay << "," << g_txCount << "," << txCost
             << "," << g_duplicates << "," << attackerDrops << "," << spoofTx << ","
             << srcNeighbours << "," << sinkNeighbours << "," << (reachable ? 1 : 0) << ","
-            << badNearSink << "," << (legacyNewPacketTest ? 1 : 0) << "\n";
+            << badNearSink << "," << (legacyNewPacketTest ? 1 : 0) << ","
+            << AquaSimDBR::s_cancelledBySpoof << "," << AquaSimDBR::s_spoofHeardFirst << ","
+            << AquaSimDBR::s_cancelledHonest << "," << AquaSimDBR::s_requeuedAfterSuppress << ","
+            << AquaSimDBR::s_requeueBlocked << "," << (suppressedIsFinal ? 1 : 0) << "\n";
 
   Simulator::Destroy();
   return 0;

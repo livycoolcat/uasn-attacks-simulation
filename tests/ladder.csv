@@ -1,0 +1,13 @@
+# Two-column "ladder" for validating attacks by hand.
+# Run with: --positions=ladder.csv --width=200 --length=200 --depth=300 --range=100
+# Source (100,100,0) and sink (100,100,300) are added by the scenario.
+# Relay index = line order (0-based). Left column x=70, right column x=130.
+# Adjacent layers hear each other (60-88 m), layers two apart do not (>100 m).
+70,100,60
+130,100,65
+70,100,120
+130,100,125
+70,100,180
+130,100,185
+70,100,240
+130,100,245

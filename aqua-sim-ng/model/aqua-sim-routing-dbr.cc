@@ -19,6 +19,8 @@
 */
 
 #include "aqua-sim-routing-dbr.h"
+#include "ns3/double.h"
+#include "ns3/boolean.h"
 #include "aqua-sim-header.h"
 #include "aqua-sim-header-routing.h"
 #include "aqua-sim-pt-tag.h"
@@ -144,6 +146,7 @@ MyPacketQueue::update(Ptr<Packet> p, double t)
 			else
 				return false;
 		}
+		iter++;  // CSC 466 fix: was missing, so a queue holding a different packet looped forever
 	}
 
 	// not found
@@ -647,10 +650,24 @@ int main(void)
  */
 NS_OBJECT_ENSURE_REGISTERED(AquaSimDBR);
 
+std::set<AquaSimAddress> AquaSimDBR::s_attackers;
+uint64_t AquaSimDBR::s_cancelledBySpoof = 0;
+uint64_t AquaSimDBR::s_spoofHeardFirst = 0;
+uint64_t AquaSimDBR::s_cancelledHonest = 0;
+uint64_t AquaSimDBR::s_requeuedAfterSuppress = 0;
+uint64_t AquaSimDBR::s_requeueBlocked = 0;
+bool AquaSimDBR::s_trace = false;
+
+// CSC 466: one line per DBR decision, for checking small hand-built topologies.
+#define DBR_TRACE(what, pid, extra) \
+  do { if (AquaSimDBR::s_trace) std::clog << "TRACE t=" << Simulator::Now().GetSeconds() \
+       << " node=" << AquaSimAddress::ConvertFrom(GetNetDevice()->GetAddress()).GetAsInt() \
+       << " pkt=" << (pid) << " " << what << " " << extra << "\n"; } while (0)
+
 AquaSimDBR::AquaSimDBR() :
 	m_bInt(DBR_BEACON_INT), m_bDesync(DBR_BEACON_DESYNC), m_pktCnt(0),
 	m_attack(ATTACK_NONE), m_dropProb(1.0), m_spoofZ(1.0e4),
-	m_attackDrops(0), m_spoofTx(0), m_legacyNewPacketTest(false)
+	m_attackDrops(0), m_spoofTx(0), m_legacyNewPacketTest(false), m_maxRange(DBR_MAX_RANGE), m_suppressedIsFinal(false)
 {
 	m_nTab = new NeighbTable();
 
@@ -689,6 +706,17 @@ AquaSimDBR::GetTypeId()
       "For before/after comparisons only; experiments leave this false.",
       BooleanValue (false),
       MakeBooleanAccessor (&AquaSimDBR::m_legacyNewPacketTest),
+      MakeBooleanChecker ())
+    .AddAttribute ("MaxRange",
+      "Transmission range R (m) used in the DBR holding time 4*tau*(1 - d/R).",
+      DoubleValue (DBR_MAX_RANGE),
+      MakeDoubleAccessor (&AquaSimDBR::m_maxRange),
+      MakeDoubleChecker<double> (0.0))
+    .AddAttribute ("SuppressedIsFinal",
+      "If true, a node that cancelled a packet (heard it from a shallower node) "
+      "ignores later copies of it. False = original Aqua-Sim behaviour.",
+      BooleanValue (false),
+      MakeBooleanAccessor (&AquaSimDBR::m_suppressedIsFinal),
       MakeBooleanChecker ())
   ;
   return tid;
@@ -781,6 +809,11 @@ AquaSimDBR::Send_Callback(void)
 	// send the first packet out
 	q = m_pq.front();
 	m_pq.pop();
+	{
+		AquaSimHeader th; DBRHeader td;
+		(q->m_p)->RemoveHeader(th); (q->m_p)->PeekHeader(td); (q->m_p)->AddHeader(th);
+		DBR_TRACE("SEND", td.GetPacketID(), "depthField=" << td.GetDepth());
+	}
   Simulator::Schedule(Seconds(0),&AquaSimRouting::SendDown,this,
                         q->m_p,AquaSimAddress::GetBroadcast(),Seconds(0));
 
@@ -1155,6 +1188,8 @@ void
 AquaSimDBR::SetAttack(AttackMode mode, double dropProb, double spoofZ)
 {
   m_attack = mode;
+  if (mode != ATTACK_NONE)
+    s_attackers.insert(AquaSimAddress::ConvertFrom(GetNetDevice()->GetAddress()));
   m_dropProb = dropProb;
   m_spoofZ = spoofZ;
   if (!m_attackRand)
@@ -1192,6 +1227,7 @@ AquaSimDBR::HandleAttack(Ptr<Packet> p)
           m_attackSeen[id] = true;
           m_attackDrops++;
         }
+      DBR_TRACE("BLACKHOLE_DROP", id, "");
       return true; // silent: no transmission at all
 
     case ATTACK_GRAYHOLE:
@@ -1234,7 +1270,15 @@ AquaSimDBR::SendSpoofedCopy(Ptr<Packet> p, bool deliverable)
   copy->RemoveHeader(dbrh);
   copy->RemovePacketTag(ptag);
 
-  dbrh.SetDepth(m_spoofZ);
+  // Zuba et al. (2013): claim to be at least one range above the optimal
+  // receiver. Every node that can hear this attacker is at most R above it,
+  // so "own height + R" makes every listener treat the copy as coming from a
+  // shallower node, without claiming an impossible position above the surface.
+  // m_spoofZ < 0 means "relative"; a value >= 0 is an absolute claimed height.
+  double claim = m_spoofZ;
+  if (claim < 0)
+    claim = GetNetDevice()->GetNode()->GetObject<MobilityModel>()->GetPosition().z + m_maxRange;
+  dbrh.SetDepth(claim);
   dbrh.SetOwner(dbrh.GetPrevHop());
   dbrh.SetPrevHop(AquaSimAddress::ConvertFrom(GetNetDevice()->GetAddress()));
 
@@ -1255,6 +1299,7 @@ AquaSimDBR::SendSpoofedCopy(Ptr<Packet> p, bool deliverable)
   copy->AddHeader(ash);
   copy->AddPacketTag(ptag);
   m_spoofTx++;
+  DBR_TRACE("SPOOF", dbrh.GetPacketID(), "claimedZ=" << dbrh.GetDepth());
   // tiny jitter only, so the lie arrives before honest holding timers expire
   Simulator::Schedule(Seconds(m_attackRand->GetValue() * 0.01), &AquaSimRouting::SendDown,
                       this, copy, AquaSimAddress::GetBroadcast(), Seconds(0));
@@ -1386,7 +1431,21 @@ AquaSimDBR::HandlePktForward(Ptr<Packet> p)
 			p->AddHeader(dbrh);
       p->AddHeader(ash);
       p->AddPacketTag(ptag);
-			m_pq.purge(p);
+			bool cancelled = m_pq.purge(p);
+			DBR_TRACE("HEAR_SHALLOWER", dbrh.GetPacketID(), "from=" << dbrh.GetPrevHop().GetAsInt()
+			          << " claimedZ=" << dbrh.GetDepth() << (cancelled ? " CANCELLED" : " nothingQueued"));
+			m_suppressed.insert(dbrh.GetPacketID());
+			// Measurement only (no real node can tell a spoofed copy apart):
+			// count what each spoofed copy did to an honest listener.
+			if (s_attackers.count(dbrh.GetPrevHop()))
+			{
+				if (cancelled)
+					s_cancelledBySpoof++;     // had a copy queued, now cancelled
+				else if (!m_pc->AccessPacket(dbrh.GetPacketID()))
+					s_spoofHeardFirst++;      // nothing queued yet: a later honest copy can still be forwarded
+			}
+			else if (cancelled)
+				s_cancelledHonest++;        // normal DBR suppression
       p=0;
       //drop(p, DROP_RTR_TTL);
 			return;
@@ -1396,12 +1455,29 @@ AquaSimDBR::HandlePktForward(Ptr<Packet> p)
       model->GetPosition().z << ", depth=" << dbrh.GetDepth() <<
       ", delta=" << delta);
 
+		// A node already suppressed for this packet now hears a copy from a
+		// deeper node. Aqua-Sim re-queues it (only sent IDs are remembered);
+		// DBR as described by Zuba et al. (2013) decides on first reception
+		// only, so with SuppressedIsFinal the node stays quiet.
+		if (m_suppressed.count(dbrh.GetPacketID()) && !m_pc->AccessPacket(dbrh.GetPacketID()))
+		{
+			if (m_suppressedIsFinal)
+			{
+				s_requeueBlocked++;
+				p=0;
+				return;
+			}
+			s_requeuedAfterSuppress++;
+		}
+
 		// update current depth
 		dbrh.SetDepth(model->GetPosition().z);
 
 		// compute the delay
 		//delay = DBR_DEPTH_THRESHOLD / delta * DBR_SCALE;
-		delta = 1.0 - delta / DBR_MAX_RANGE;
+		// CSC 466: normalise by the real transmission range (attribute MaxRange,
+		// set by the scenario) instead of the hard-coded DBR_MAX_RANGE = 100 m.
+		delta = 1.0 - delta / m_maxRange;
 		// A depth gain larger than DBR_MAX_RANGE (possible when the channel has no
 		// range limit) would give a negative delay, which ns-3 rejects.
 		if (delta < 0) delta = 0;
@@ -1443,6 +1519,7 @@ AquaSimDBR::HandlePktForward(Ptr<Packet> p)
 	// each node only broadcasts the same pkt once
 	if (m_pc->AccessPacket(dbrh.GetPacketID()))
 	{
+		DBR_TRACE("ALREADY_SENT", dbrh.GetPacketID(), "");
 		p=0;
     //drop(p, DROP_RTR_TTL);
 		return;
@@ -1465,6 +1542,7 @@ AquaSimDBR::HandlePktForward(Ptr<Packet> p)
 	send_timer_->resched(qf->m_sendTime - NOW);
 	*/
 
+	DBR_TRACE("QUEUE", dbrh.GetPacketID(), "hold=" << delay << " from=" << dbrh.GetOwner().GetAsInt());
 	if (m_pq.empty())
 	{
 		m_pq.insert(q);

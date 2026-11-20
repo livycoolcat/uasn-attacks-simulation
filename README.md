@@ -48,7 +48,11 @@ cd ~/ns3-workspace/ns-allinone-3.41/ns-3.41
 | `--badNodes` | | exact number of bad nodes (overrides `--fraction`) |
 | `--bands` | 3 | number of depth bands |
 | `--dropProb` | 0.5 | grayhole drop probability |
-| `--spoofZ` | depth + range | height a spoofer/sinkhole claims (z is height above the seafloor) |
+| `--spoofZ` | own z + range | absolute height a spoofer/sinkhole claims (z is height above the seafloor); leave unset for "own height + range" |
+| `--suppressedIsFinal` | 0 | 1 = a node that cancelled a packet ignores later copies (DBR as described by Zuba et al.); 0 = original Aqua-Sim |
+| `--positions` | | CSV of relay positions `x,y,z` (hand-built tests, see `tests/`) |
+| `--badList` | | relay indices to make bad, e.g. `2,3` (overrides `--placement`) |
+| `--trace` | 0 | 1 = print one `TRACE` line per DBR decision (small tests only) |
 | `--RngRun` | 1 | seed: same seed = same node layout in every run |
 
 ## Attack model
@@ -57,7 +61,7 @@ Bad nodes are picked only from relays, never the source or sink.
 
 - **blackhole**: drops every packet it should forward and sends nothing (Das et al., 2024).
 - **grayhole**: drops each packet with probability `dropProb`, decided once per packet, and forwards the rest normally (Das et al., 2024).
-- **depthspoof**: immediately re-broadcasts the packet claiming a fake shallow depth, so honest neighbours cancel their own copies (Zuba et al., 2013). The copy is genuine, so the sink still accepts it if it hears it directly.
+- **depthspoof**: as soon as it hears a copy, re-broadcasts the packet claiming to be one range above itself, so every honest node that hears it treats it as coming from a shallower node and cancels its own copy (Zuba et al., 2013). The copy is genuine, so the sink still accepts it if it hears it directly. Checked by hand on `tests/ladder.csv`.
 - **sinkhole**: the same fake-shallow broadcast to win forwarding, but the copy is addressed to no one, so it is never delivered (Sun et al., 2026).
 
 For one seed, the node layout is identical across all attacks, placements and
@@ -92,6 +96,19 @@ simulations at once; use `--jobs 1` if the VM runs short of memory.
 (`reachable=0`) and writes `results/figures/summary.csv` plus one PNG per attack
 with delivery ratio, delay and transmission cost against the percentage of bad
 nodes, one line per placement, with 95% confidence intervals.
+
+## Other DBR fixes (Nov 20)
+
+- `MyPacketQueue::update()` had no `iter++`, so a node holding a *different*
+  packet in its queue looped forever. With a 10 s packet interval the queue
+  never held two packets, so earlier results are unaffected; shorter intervals
+  would have hung.
+- The holding time divided by a hard-coded 100 m (`DBR_MAX_RANGE`) instead of
+  the real range. It now uses `--range`. Results at 100 m are unchanged; runs at
+  `--range=120` were wrong before.
+
+New CSV columns were added at the end (see `tests/README.md`), so write new
+results to a new CSV file rather than appending to an old one.
 
 ## Reproducing the original DBR bug (`--legacyNewPacketTest`)
 
