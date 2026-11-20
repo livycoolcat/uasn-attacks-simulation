@@ -175,6 +175,7 @@ main(int argc, char* argv[])
   std::string positionsFile = "";    // optional CSV of relay positions x,y,z (hand-built tests)
   bool legacyNewPacketTest = false;  // reproduce the original DBR bug (Fix 1)
   bool suppressedIsFinal = false;    // DBR variant: suppression is final (Zuba et al.)
+  bool equalBands = false;          // same number of relays in every depth band
   bool trace = false;
   bool csvHeader = false;
   bool verbose = true;
@@ -207,6 +208,9 @@ main(int argc, char* argv[])
   cmd.AddValue("suppressedIsFinal",
                "A suppressed node ignores later copies of that packet (DBR as in Zuba et al.)",
                suppressedIsFinal);
+  cmd.AddValue("equalBands",
+               "Put the same number of relays in every depth band (random positions inside each band)",
+               equalBands);
   cmd.AddValue("trace", "Print one TRACE line per DBR decision (small tests only)", trace);
   cmd.AddValue("csvHeader", "Print the CSV column names and exit", csvHeader);
   cmd.AddValue("verbose", "Print the human-readable summary", verbose);
@@ -281,6 +285,14 @@ main(int argc, char* argv[])
       double x = rand->GetValue(0, width);
       double y = rand->GetValue(0, length);
       double z = rand->GetValue(0, depth);
+      if (equalBands)
+        {
+          // Relay i goes in band i*bands/relays (34/33/33 for 100 relays and 3
+          // bands), at a uniformly random height inside that band. The same
+          // random draws are used, so x and y match the default layout.
+          uint32_t b = i * bands / relays;
+          z = (b + z / depth) * depth / bands;
+        }
       pos.push_back(filePos.empty() ? Vector(x, y, z) : filePos[i]);
     }
   pos.push_back(Vector(width / 2, length / 2, 0));     // source on the seafloor

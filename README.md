@@ -53,6 +53,7 @@ cd ~/ns3-workspace/ns-allinone-3.41/ns-3.41
 | `--positions` | | CSV of relay positions `x,y,z` (hand-built tests, see `tests/`) |
 | `--badList` | | relay indices to make bad, e.g. `2,3` (overrides `--placement`) |
 | `--trace` | 0 | 1 = print one `TRACE` line per DBR decision (small tests only) |
+| `--equalBands` | 0 | 1 = the same number of relays in every depth band (34/33/33 for 100 relays), at random heights inside each band, so every band can supply 30% bad nodes and all bands have the same density |
 | `--RngRun` | 1 | seed: same seed = same node layout in every run |
 
 ## Attack model
