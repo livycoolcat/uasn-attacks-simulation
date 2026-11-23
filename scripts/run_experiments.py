@@ -9,10 +9,16 @@ Typical use (inside the VM, from the project repo):
   python3 scripts/run_experiments.py --attacks blackhole --placements random shallow \
       --fractions 0.1 0.2 --seeds 1-3 --out results/test.csv
 
-  # the full experiment from the proposal
+  # the final experiments (equal bands and spoofMargin=10 are the defaults)
   python3 scripts/run_experiments.py --attacks blackhole \
-      --placements random shallow middle deep --fractions 0.05 0.1 0.2 0.3 \
-      --seeds 1-20 --out results/blackhole.csv
+      --placements random shallow middle deep --fractions 0.05 0.1 0.2 \
+      --seeds 1-100 --out results/final_blackhole.csv
+  python3 scripts/run_experiments.py --attacks depthspoof \
+      --placements random shallow middle deep --fractions 0.05 0.1 0.2 \
+      --seeds 1-100 --out results/final_depthspoof.csv
+
+  # extra UasnDbr flags: one per --extra, e.g. reproduce the old layouts
+  python3 scripts/run_experiments.py ... --extra=--equalBands=0 --extra=--spoofMargin=-1
 
   # extensions
   python3 scripts/run_experiments.py --attacks grayhole --drop-probs 0.25 0.5 0.75 ...
@@ -264,7 +270,7 @@ def main():
     ap.add_argument("--attacks", nargs="+", default=["blackhole"],
                     choices=["blackhole", "grayhole", "depthspoof", "sinkhole"])
     ap.add_argument("--placements", nargs="+", default=["random", "shallow", "middle", "deep"])
-    ap.add_argument("--fractions", nargs="+", type=float, default=[0.05, 0.1, 0.2, 0.3])
+    ap.add_argument("--fractions", nargs="+", type=float, default=[0.05, 0.1, 0.2])
     ap.add_argument("--seeds", nargs="+", default=["1-10"], help="e.g. 1-20 or 1 2 3")
     ap.add_argument("--drop-probs", nargs="+", type=float, default=[0.5], help="grayhole only")
     ap.add_argument("--spoof-z", type=float, default=None,
@@ -273,7 +279,8 @@ def main():
     ap.add_argument("--boxes", nargs="+", default=["300x300x500", "250x250x500", "200x200x500"])
     ap.add_argument("--ranges", nargs="+", type=float, default=[100, 120])
     ap.add_argument("--packets-sweep", type=int, default=5, help="packets per sweep run")
-    ap.add_argument("--extra", nargs="*", help="extra UasnDbr args, e.g. --extra --drain=120")
+    ap.add_argument("--extra", action="append", default=[],
+                    help="one extra UasnDbr flag per --extra, e.g. --extra=--drain=120 --extra=--equalBands=0")
     a = ap.parse_args()
     a.ns3_dir = os.path.abspath(os.path.expanduser(a.ns3_dir))
     if a.mode == "connectivity":

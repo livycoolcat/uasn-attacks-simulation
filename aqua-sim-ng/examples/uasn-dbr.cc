@@ -6,7 +6,9 @@
  * Layout (z = height above the seafloor, so bigger z = shallower):
  *   - one source on the seafloor  at (width/2, length/2, 0)
  *   - one sink   at the surface   at (width/2, length/2, depth)
- *   - `relays` relay nodes placed uniformly at random in the box
+ *   - `relays` relay nodes; by default the same number in every depth band
+ *     (34/33/33 for 100 relays and 3 bands), at random positions inside each
+ *     band (--equalBands=0: uniformly at random in the whole box)
  *   - the box is split into `bands` equal depth bands; with 3 bands:
  *       deep    z in [0,       depth/3)
  *       middle  z in [depth/3, 2depth/3)
@@ -25,6 +27,10 @@
  *   delivery ratio = unique packets at the sink / packets sent
  *   delay          = mean time for the first copy to reach the sink
  *   tx cost        = routing-layer transmissions (all nodes) / delivered
+ *                    (the CSV also has `tx` and `sent`, so tx / sent can be computed)
+ *
+ * Project defaults (CSC 466 final runs): --equalBands=1 and --spoofMargin=10.
+ * To reproduce runs from before Nov 22, use --equalBands=0 --spoofMargin=-1.
  *
  * Examples:
  *   ./ns3 run "UasnDbr --RngRun=1"                                   (no attack)
@@ -70,7 +76,7 @@ const char* CSV_HEADER =
   "sent,delivered,pdr,avgDelay,tx,txCost,duplicates,attackerDrops,spoofTx,"
   "srcNeighbours,sinkNeighbours,reachable,badInRangeOfSink,legacyNewPacketTest,"
   "cancelledBySpoof,spoofHeardFirst,cancelledHonest,requeuedAfterSuppress,requeueBlocked,"
-  "suppressedIsFinal";
+  "suppressedIsFinal,equalBands,spoofMargin";
 
 void
 SinkRx(Ptr<const Packet> p)
@@ -171,12 +177,13 @@ main(int argc, char* argv[])
   uint32_t bands = 3;
   double dropProb = 0.5;             // grayhole drop probability
   double spoofZ = -1;                // claimed height; <0 = attacker height + range (Zuba et al.)
-  double spoofMargin = -1;           // >=0: claim this many m above the shallowest relay in range
+  double spoofMargin = 10;           // >=0: claim this many m above the shallowest relay in range;
+                                     // <0 = off (spoofZ / own height + range is used instead)
   std::string badList = "";          // explicit bad relay indices, e.g. "2,3" (tests)
   std::string positionsFile = "";    // optional CSV of relay positions x,y,z (hand-built tests)
   bool legacyNewPacketTest = false;  // reproduce the original DBR bug (Fix 1)
   bool suppressedIsFinal = false;    // DBR variant: suppression is final (Zuba et al.)
-  bool equalBands = false;          // same number of relays in every depth band
+  bool equalBands = true;            // same number of relays in every depth band (0 = old layout)
   bool trace = false;
   bool csvHeader = false;
   bool verbose = true;
@@ -492,7 +499,9 @@ main(int argc, char* argv[])
         std::cout << " dropProb=" << dropProb;
       if (mode == AquaSimDBR::ATTACK_DEPTHSPOOF || mode == AquaSimDBR::ATTACK_SINKHOLE)
         {
-          if (spoofZ < 0)
+          if (spoofMargin >= 0)
+            std::cout << " spoofMargin=" << spoofMargin << " (above shallowest relay in range, capped at surface)";
+          else if (spoofZ < 0)
             std::cout << " spoofZ=own+" << range;
           else
             std::cout << " spoofZ=" << spoofZ;
@@ -531,7 +540,8 @@ main(int argc, char* argv[])
             << badNearSink << "," << (legacyNewPacketTest ? 1 : 0) << ","
             << AquaSimDBR::s_cancelledBySpoof << "," << AquaSimDBR::s_spoofHeardFirst << ","
             << AquaSimDBR::s_cancelledHonest << "," << AquaSimDBR::s_requeuedAfterSuppress << ","
-            << AquaSimDBR::s_requeueBlocked << "," << (suppressedIsFinal ? 1 : 0) << "\n";
+            << AquaSimDBR::s_requeueBlocked << "," << (suppressedIsFinal ? 1 : 0) << ","
+            << (equalBands ? 1 : 0) << "," << spoofMargin << "\n";
 
   Simulator::Destroy();
   return 0;
