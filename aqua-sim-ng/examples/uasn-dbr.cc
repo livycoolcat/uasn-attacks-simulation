@@ -171,6 +171,7 @@ main(int argc, char* argv[])
   uint32_t bands = 3;
   double dropProb = 0.5;             // grayhole drop probability
   double spoofZ = -1;                // claimed height; <0 = attacker height + range (Zuba et al.)
+  double spoofMargin = -1;           // >=0: claim this many m above the shallowest relay in range
   std::string badList = "";          // explicit bad relay indices, e.g. "2,3" (tests)
   std::string positionsFile = "";    // optional CSV of relay positions x,y,z (hand-built tests)
   bool legacyNewPacketTest = false;  // reproduce the original DBR bug (Fix 1)
@@ -198,6 +199,9 @@ main(int argc, char* argv[])
   cmd.AddValue("dropProb", "Grayhole drop probability (0-1)", dropProb);
   cmd.AddValue("spoofZ", "Absolute height a spoofer/sinkhole claims; <0 = own height + range",
                spoofZ);
+  cmd.AddValue("spoofMargin",
+               "Spoofer claims this many m above the shallowest relay in its range (<0 = off)",
+               spoofMargin);
   cmd.AddValue("badList", "Comma-separated relay indices to make bad (overrides placement)",
                badList);
   cmd.AddValue("positions", "CSV file of relay positions x,y,z (overrides --relays)",
@@ -411,7 +415,24 @@ main(int argc, char* argv[])
       Ptr<AquaSimNetDevice> dev = DynamicCast<AquaSimNetDevice>(devices.Get(i));
       Ptr<AquaSimDBR> dbr = DynamicCast<AquaSimDBR>(dev->GetRouting());
       NS_ABORT_MSG_IF(!dbr, "Routing is not AquaSimDBR");
-      dbr->SetAttack(mode, dropProb, spoofZ);
+      double claim = spoofZ;
+      if ((mode == AquaSimDBR::ATTACK_DEPTHSPOOF || mode == AquaSimDBR::ATTACK_SINKHOLE) &&
+          spoofMargin >= 0)
+        {
+          // The attacker knows its neighbours' depths (e.g. from a survey) and claims
+          // to be spoofMargin m above the shallowest relay it can reach, like Zuba et
+          // al.'s (2013) "DOR - 10 m". Never above the surface.
+          double highest = pos[i].z;
+          for (uint32_t j = 0; j < relays; j++)
+            {
+              if (j != i && CalculateDistance(pos[i], pos[j]) <= range)
+                {
+                  highest = std::max(highest, pos[j].z);
+                }
+            }
+          claim = std::min(highest + spoofMargin, depth);
+        }
+      dbr->SetAttack(mode, dropProb, claim);
       badRouting.push_back(dbr);
     }
 
