@@ -666,7 +666,7 @@ bool AquaSimDBR::s_trace = false;
 
 AquaSimDBR::AquaSimDBR() :
 	m_bInt(DBR_BEACON_INT), m_bDesync(DBR_BEACON_DESYNC), m_pktCnt(0),
-	m_attack(ATTACK_NONE), m_dropProb(1.0), m_spoofZ(1.0e4),
+	m_attack(ATTACK_NONE), m_dropProb(1.0), m_spoofZ(-1),
 	m_attackDrops(0), m_spoofTx(0), m_legacyNewPacketTest(false), m_maxRange(DBR_MAX_RANGE), m_suppressedIsFinal(false)
 {
 	m_nTab = new NeighbTable();
@@ -1478,7 +1478,7 @@ AquaSimDBR::HandlePktForward(Ptr<Packet> p)
 		// CSC 466: normalise by the real transmission range (attribute MaxRange,
 		// set by the scenario) instead of the hard-coded DBR_MAX_RANGE = 100 m.
 		delta = 1.0 - delta / m_maxRange;
-		// A depth gain larger than DBR_MAX_RANGE (possible when the channel has no
+		// A depth gain larger than the range (possible when the channel has no
 		// range limit) would give a negative delay, which ns-3 rejects.
 		if (delta < 0) delta = 0;
 		delay = DBR_MIN_BACKOFF + 4.0 * delta * DBR_MAX_DELAY;

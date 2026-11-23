@@ -207,10 +207,11 @@ public:
    *   ATTACK_BLACKHOLE   drop every packet, transmit nothing (Das et al. 2024)
    *   ATTACK_GRAYHOLE    drop each packet with probability dropProb, forward the
    *                      rest as an honest DBR node would (Das et al. 2024)
-   *   ATTACK_DEPTHSPOOF  immediately re-broadcast the packet claiming height
-   *                      spoofZ (shallower than everyone), so honest neighbours
-   *                      cancel their copies (Zuba et al. 2013). The copy is
-   *                      real: the sink still accepts it if it hears it directly.
+   *   ATTACK_DEPTHSPOOF  immediately re-broadcast the packet claiming to be one
+   *                      range shallower than itself (or height spoofZ if
+   *                      spoofZ >= 0), so honest neighbours cancel their copies
+   *                      (Zuba et al. 2013). The copy is real: the sink still
+   *                      accepts it if it hears it directly.
    *   ATTACK_SINKHOLE    same fake-shallow broadcast to win forwarding, but the
    *                      copy is addressed to nobody, so it is never delivered:
    *                      it attracts the packet and then drops it (Sun et al. 2026)
@@ -223,7 +224,7 @@ public:
     ATTACK_DEPTHSPOOF = 3,
     ATTACK_SINKHOLE = 4
   };
-  void SetAttack(AttackMode mode, double dropProb = 1.0, double spoofZ = 1.0e4);
+  void SetAttack(AttackMode mode, double dropProb = 1.0, double spoofZ = -1);  // spoofZ < 0: own height + range
   AttackMode GetAttack() const { return m_attack; }
   uint32_t GetAttackDrops() const { return m_attackDrops; } // packets dropped (unique IDs)
   uint32_t GetSpoofTx() const { return m_spoofTx; }         // fake-depth broadcasts sent
@@ -285,8 +286,8 @@ public:
   static uint64_t s_spoofHeardFirst;   // spoofed copy arrived before the node queued its own
   static uint64_t s_cancelledHonest;   // honest queued copies cancelled by an honest shallower copy
   static uint64_t s_requeuedAfterSuppress; // suppressed node re-queued on a later deeper copy
-  static uint64_t s_requeueBlocked;
-  static bool s_trace;                 // print TRACE lines (uasn-dbr --trace=1)    // same, but blocked because SuppressedIsFinal=true
+  static uint64_t s_requeueBlocked;    // same, but blocked because SuppressedIsFinal=true
+  static bool s_trace;                 // print TRACE lines (uasn-dbr --trace=1)
 };
 
 }  // namespace ns3
