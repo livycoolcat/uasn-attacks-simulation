@@ -1270,11 +1270,11 @@ AquaSimDBR::SendSpoofedCopy(Ptr<Packet> p, bool deliverable)
   copy->RemoveHeader(dbrh);
   copy->RemovePacketTag(ptag);
 
-  // Zuba et al. (2013): claim to be at least one range above the optimal
-  // receiver. Every node that can hear this attacker is at most R above it,
-  // so "own height + R" makes every listener treat the copy as coming from a
-  // shallower node, without claiming an impossible position above the surface.
-  // m_spoofZ < 0 means "relative"; a value >= 0 is an absolute claimed height.
+  // The claimed height comes from the scenario (m_spoofZ >= 0): with
+// --spoofMargin it is 10 m above the shallowest relay in range, capped at
+// the surface (Zuba et al. 2013, "DOR - 10 m"). If no height is given
+// (m_spoofZ < 0), fall back to own height + R, which every listener is at
+// or below (but can exceed the surface for spoofers in the top 100 m).
   double claim = m_spoofZ;
   if (claim < 0)
     claim = GetNetDevice()->GetNode()->GetObject<MobilityModel>()->GetPosition().z + m_maxRange;
