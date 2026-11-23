@@ -49,12 +49,12 @@ cd ~/ns3-workspace/ns-allinone-3.41/ns-3.41
 | `--bands` | 3 | number of depth bands |
 | `--dropProb` | 0.5 | grayhole drop probability |
 | `--spoofZ` | own z + range | absolute height a spoofer/sinkhole claims (z is height above the seafloor); leave unset for "own height + range" |
-| `--spoofMargin` | -1 (off) | spoofer claims this many metres above the shallowest relay in its range, capped at the surface (Zuba et al.'s "DOR - 10 m"); use `--spoofMargin=10` |
+| `--spoofMargin` | 10 | spoofer claims this many metres above the shallowest relay in its range, capped at the surface (Zuba et al.'s "DOR - 10 m"); a negative value turns it off |
 | `--suppressedIsFinal` | 0 | 1 = a node that cancelled a packet ignores later copies (DBR as described by Zuba et al.); 0 = original Aqua-Sim |
 | `--positions` | | CSV of relay positions `x,y,z` (hand-built tests, see `tests/`) |
 | `--badList` | | relay indices to make bad, e.g. `2,3` (overrides `--placement`) |
 | `--trace` | 0 | 1 = print one `TRACE` line per DBR decision (small tests only) |
-| `--equalBands` | 0 | 1 = the same number of relays in every depth band (34/33/33 for 100 relays), at random heights inside each band, so every band can supply 30% bad nodes and all bands have the same density |
+| `--equalBands` | 1 | the same number of relays in every depth band (34/33/33 for 100 relays), at random heights inside each band, so every band can supply the bad nodes and all bands have the same density; 0 = old uniform layout |
 | `--RngRun` | 1 | seed: same seed = same node layout in every run |
 
 ## Attack model
@@ -111,6 +111,12 @@ nodes, one line per placement, with 95% confidence intervals.
 
 New CSV columns were added at the end (see `tests/README.md`), so write new
 results to a new CSV file rather than appending to an old one.
+
+**Defaults changed (Nov 22):** `--equalBands=1` and `--spoofMargin=10` are now
+the defaults, matching the final experiments, and the CSV records both
+(`equalBands`, `spoofMargin` columns). To reproduce results from before Nov 22
+(e.g. `results/blackhole.csv`), add `--equalBands=0 --spoofMargin=-1`
+(through the run script: `--extra=--equalBands=0 --extra=--spoofMargin=-1`).
 
 ## Reproducing the original DBR bug (`--legacyNewPacketTest`)
 

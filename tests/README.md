@@ -41,7 +41,7 @@ Expected results (checked on ns-3.41, Nov 20):
 | no attack | 50/50 | both nodes of each layer forward; L2 loses both layer-1 copies to a collision |
 | silent L2 | 50/50 | L2 drops, R2 forwards as before |
 | silent L2+R2 | 0/50 | nothing crosses layer 2 |
-| spoof L2 | 0/50 | L2 sends a copy claiming z=220; L3 and R3 had the packet queued and CANCEL it |
+| spoof L2 | 0/50 | L2 sends a copy claiming z=195 (10 m above R3, its shallowest neighbour; z=220 with `--spoofMargin=-1`); L3 and R3 had the packet queued and CANCEL it |
 | spoof L4 | 50/50 | the spoofed copy collides at R4, so R4 still reaches the sink |
 
 Things this test shows that matter for the report:
