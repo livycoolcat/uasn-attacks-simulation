@@ -49,6 +49,7 @@ cd ~/ns3-workspace/ns-allinone-3.41/ns-3.41
 | `--bands` | 3 | number of depth bands |
 | `--dropProb` | 0.5 | grayhole drop probability |
 | `--spoofZ` | own z + range | absolute height a spoofer/sinkhole claims (z is height above the seafloor); leave unset for "own height + range" |
+| `--spoofMargin` | -1 (off) | spoofer claims this many metres above the shallowest relay in its range, capped at the surface (Zuba et al.'s "DOR - 10 m"); use `--spoofMargin=10` |
 | `--suppressedIsFinal` | 0 | 1 = a node that cancelled a packet ignores later copies (DBR as described by Zuba et al.); 0 = original Aqua-Sim |
 | `--positions` | | CSV of relay positions `x,y,z` (hand-built tests, see `tests/`) |
 | `--badList` | | relay indices to make bad, e.g. `2,3` (overrides `--placement`) |
