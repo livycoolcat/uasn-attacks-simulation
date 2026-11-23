@@ -38,6 +38,7 @@
 
 #include <deque>
 #include <map>
+#include <set>
 
 #define	DBR_PORT		0xFF
 
@@ -272,6 +273,20 @@ protected:
 
   // true = use the original "forward count == 0" new-packet test (bug repro)
   bool m_legacyNewPacketTest;
+
+  double m_maxRange;  // R in the holding time (attribute MaxRange)
+  bool m_suppressedIsFinal;            // attribute SuppressedIsFinal
+  std::set<uint32_t> m_suppressed;     // packet IDs this node has been suppressed for
+
+public:
+  // Measurement-only counters across all nodes (see HandlePktForward).
+  static std::set<AquaSimAddress> s_attackers;
+  static uint64_t s_cancelledBySpoof;  // honest queued copies cancelled by a spoofed copy
+  static uint64_t s_spoofHeardFirst;   // spoofed copy arrived before the node queued its own
+  static uint64_t s_cancelledHonest;   // honest queued copies cancelled by an honest shallower copy
+  static uint64_t s_requeuedAfterSuppress; // suppressed node re-queued on a later deeper copy
+  static uint64_t s_requeueBlocked;
+  static bool s_trace;                 // print TRACE lines (uasn-dbr --trace=1)    // same, but blocked because SuppressedIsFinal=true
 };
 
 }  // namespace ns3

@@ -33,3 +33,11 @@ To reproduce, from `~/ns3-workspace/ns-allinone-3.41/ns-3.41`:
 ./ns3 run "UasnDbr --RngRun=1 --legacyNewPacketTest=1"   # original
 ./ns3 run "UasnDbr --RngRun=1"                           # fixed
 ```
+
+## Pilot: silent blackhole vs depth spoofing (Nov 20)
+
+`pilot_depthspoof.csv`: 30 seeds x {blackhole, depthspoof} x 4 placements x
+{5, 10, 20, 30}% x `suppressedIsFinal` {0, 1}, default 300 x 300 x 500 m box,
+100 relays, 100 m range. A pilot to check that the spoofing attack behaves
+sensibly, not final results. Each DBR variant has its own baseline rows (the
+`suppressedIsFinal` column), so filter on it before averaging.
